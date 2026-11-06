@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mon Budget</title>
+  <meta name="description" content="Suivi des dépenses et budgets, 100 % local sur ton iPhone.">
+  <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar"><h1 id="title">Mon Budget</h1></header>
+  <main id="main" aria-live="polite"></main>
+
+  <button class="fab" data-act="newTx" aria-label="Ajouter une opération">+</button>
+
+  <nav class="tabbar" aria-label="Navigation">
+    <button class="tab" data-act="go" data-view="home"><span aria-hidden="true">🏠</span>Accueil</button>
+    <button class="tab" data-act="go" data-view="ops"><span aria-hidden="true">📋</span>Opérations</button>
+    <button class="tab" data-act="go" data-view="budgets"><span aria-hidden="true">🎯</span>Budgets</button>
+    <button class="tab" data-act="go" data-view="recurring"><span aria-hidden="true">🔁</span>Récurrents</button>
+    <button class="tab" data-act="go" data-view="settings"><span aria-hidden="true">⚙️</span>Réglages</button>
+  </nav>
+
+  <div id="sheet" class="sheet-wrap" hidden>
+    <div class="sheet-backdrop" data-act="closeSheet"></div>
+    <div class="sheet" role="dialog" aria-modal="true"><div id="sheetBody"></div></div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <input type="file" id="fileInput" accept=".csv,.txt,.ofx,.qfx,text/csv,text/plain" hidden>
+  <input type="file" id="backupInput" accept=".json,application/json" hidden>
+
+  <script src="app.js"></script>
+</body>
+</html>
