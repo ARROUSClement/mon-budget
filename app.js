@@ -70,6 +70,7 @@ const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' 
 const fmt = (c) => EUR.format((c || 0) / 100);
 const fmtSigned = (c) => (c > 0 ? '+' : '') + fmt(c);
 const sum = (arr) => arr.reduce((a, t) => a + t.amount, 0);
+const H = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 
 /** "1 234,56 €", "-12.5", "(3,20)", "12,50EUR" → centimes (entier), NaN si illisible. */
@@ -95,6 +96,7 @@ function parseAmount(raw) {
   return neg ? -v : v;
 }
 
+const MONTHS = [['janv', 'jan'], ['fev', 'feb'], ['mars', 'mar'], ['avr', 'apr'], ['mai', 'may'], ['juin', 'jun'], ['juil', 'jul'], ['aout', 'aug'], ['sept', 'sep'], ['oct'], ['nov'], ['dec']];
 /** "06/11/2026", "6/11/26", "2026-11-06", "20261106", "06.11.2026" → "2026-11-06" ou null. */
 function parseDate(raw) {
   const s = String(raw || '').trim();
@@ -104,6 +106,16 @@ function parseDate(raw) {
   if (m) { let y = +m[3]; if (y < 100) y += 2000; return valid(y, +m[2], +m[1]); }
   m = s.match(/^(\d{4})(\d{2})(\d{2})/);
   if (m) return valid(+m[1], +m[2], +m[3]);
+  // Formats iPhone : « 6 nov. 2026 à 12:30 », « 6 novembre 2026 », « Nov 6, 2026 at 12:30 », « Aujourd’hui à 12:30 »
+  const t = H(s);
+  if (/^aujourd/.test(t) || /^today/.test(t)) return today();
+  if (/^hier/.test(t) || /^yesterday/.test(t)) return addDays(today(), -1);
+  m = t.match(/(\d{1,2})(?:er)?\s+([a-z]+)\.?\s+(\d{4})/) || t.match(/([a-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})/);
+  if (m) {
+    const [dd, name] = /^\d/.test(m[1]) ? [+m[1], m[2]] : [+m[2], m[1]];
+    const mo = MONTHS.findIndex((list) => list.some((x) => name.startsWith(x)));
+    if (mo >= 0) return valid(+m[3], mo + 1, dd);
+  }
   return null;
   function valid(y, mo, d) {
     if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
@@ -321,7 +333,7 @@ const VIEWS = {
       .flatMap((r) => occurrencesBetween(r, today(), addDays(today(), 30)).map((d) => ({ r, d })))
       .sort((a, b) => a.d.localeCompare(b.d)).slice(0, 6);
     const recent = [...txs].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
-    return `${monthSwitch()}
+    return `${syncCard()}${monthSwitch()}
     <section class="card hero">
       <div class="label">${bt ? 'Reste à dépenser (budgets du mois)' : 'Solde du mois'}</div>
       <div class="value ${heroVal < 0 ? 'neg' : ''}">${fmt(heroVal)}</div>
@@ -437,17 +449,12 @@ const VIEWS = {
       <h2>Importer</h2>
       <p class="small muted">Relevé de ta banque (CSV ou OFX, ex. La Banque Postale) ou fichier Apple Pay créé par le Raccourci. Les doublons sont ignorés : tu peux réimporter sans risque.</p>
       <button class="btn primary block" data-act="pickFile">📥 Importer un fichier</button>
-      <details style="margin-top:10px"><summary>Exporter depuis La Banque Postale</summary>
-        <ol class="steps small">
-          <li>Sur labanquepostale.fr (navigateur, version ordinateur si besoin), ouvre ton compte.</li>
-          <li>Choisis <em>Télécharger / Exporter les opérations</em>, format <strong>CSV</strong> (ou OFX), la période la plus longue possible.</li>
-          <li>Enregistre le fichier dans <em>Fichiers</em>, puis importe-le ici.</li>
-        </ol></details>
+      <p class="center small"><button class="link" data-act="bankHelp">Comment exporter depuis La Banque Postale ?</button></p>
     </section>
     <section class="card">
       <h2> Pay automatique</h2>
-      <p class="small muted">Un Raccourci iOS enregistre chaque paiement Apple Pay dans un fichier, sans ouvrir l’app. Tu l’importes ensuite ici d’un tap.</p>
-      <button class="btn block" data-act="applePayHelp">Voir la configuration</button>
+      <p class="small muted">Un Raccourci iOS note chaque paiement Apple Pay ; tu les récupères ensuite d’un tap depuis l’accueil.</p>
+      <button class="btn block" data-act="applePayHelp">Guide pas à pas</button>
     </section>
     <section class="card">
       <h2>Catégories <button class="link" data-act="newCat">+ Ajouter</button></h2>
@@ -468,13 +475,23 @@ const VIEWS = {
   },
 };
 
+function syncCard() {
+  return `<section class="card">
+    ${S.apSetup
+      ? `<button class="btn primary block" data-act="pickFile">📲 Récupérer mes paiements Apple Pay</button>
+         <p class="small muted center" style="margin:6px 0 0">${S.apLast ? 'Dernière récupération : ' + esc(shortDate(S.apLast)) : 'Fais un paiement Apple Pay puis touche ce bouton'}</p>`
+      : `<button class="btn primary block" data-act="applePayHelp"> Activer la capture Apple Pay (2 min)</button>`}
+    <p class="center small" style="margin:8px 0 0"><button class="link" data-act="bankHelp">🏦 Importer un relevé La Banque Postale</button>${S.apSetup ? ' · <button class="link" data-act="applePayHelp">Aide Apple Pay</button>' : ''}</p>
+  </section>`;
+}
+
 function onboarding() {
   return `<div class="card empty">
     <div class="big">👋</div>
     <h3>Bienvenue !</h3>
     <p class="small">Commence par récupérer ton historique, puis laisse l’app te proposer des budgets.</p>
     <div class="btns" style="flex-direction:column">
-      <button class="btn primary" data-act="pickFile">📥 Importer mon relevé bancaire (CSV)</button>
+      <button class="btn primary" data-act="bankHelp">📥 Importer mon historique La Banque Postale</button>
       <button class="btn" data-act="newTx">✍️ Saisir une dépense</button>
       <button class="btn" data-act="newRec">🔁 Ajouter un prélèvement (loyer, abonnement…)</button>
       <button class="btn" data-act="applePayHelp"> Configurer Apple Pay</button>
@@ -739,6 +756,14 @@ async function handleFile(file) {
   const text = decodeFile(await file.arrayBuffer());
   if (/^\s*AP\|/m.test(text)) return importApplePay(text);
   if (/<STMTTRN>/i.test(text)) return confirmImport(parseOFX(text), file.name);
+  // Format reconnu (ex. La Banque Postale) → pas d'écran de colonnes.
+  const rows = parseCSV(text, detectDelimiter(text.split(/\r?\n/)));
+  const g = guessMapping(rows);
+  const parsed = rowsFromMapping(g.data, g.map, false);
+  const hasAmount = g.map.amount >= 0 || g.map.debit >= 0 || g.map.credit >= 0;
+  if (g.headerIdx >= 0 && g.map.date >= 0 && g.map.label >= 0 && hasAmount && parsed.length >= Math.max(1, g.data.length * 0.8)) {
+    return confirmImport(parsed, file.name, () => openCsvMapper(text, file.name));
+  }
   return openCsvMapper(text, file.name);
 }
 
@@ -765,7 +790,6 @@ function parseCSV(text, delim) {
   if (field || row.length) { row.push(field.trim()); rows.push(row); }
   return rows;
 }
-const H = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 function guessMapping(rows) {
   let headerIdx = -1;
   for (let i = 0; i < Math.min(rows.length, 30); i++) {
@@ -870,11 +894,21 @@ function parseOFX(text) {
   }
   return out;
 }
-function confirmImport(rows, name) {
+function confirmImport(rows, name, adjust) {
   if (!rows.length) return toast('Aucune opération trouvée dans ce fichier.');
-  openSheet(`<h3>Importer « ${esc(name)} »</h3><p>${rows.length} opérations trouvées (${esc(shortDate(rows.reduce((a, r) => (r.date < a ? r.date : a), rows[0].date)))} → ${esc(shortDate(rows.reduce((a, r) => (r.date > a ? r.date : a), rows[0].date)))}).</p>
-    <div class="btns"><button class="btn primary" id="go">Importer</button><button class="btn" data-act="closeSheet">Annuler</button></div>`,
-  (root) => { $('#go', root).onclick = () => finishImport(rows); });
+  const first = rows.reduce((a, r) => (r.date < a ? r.date : a), rows[0].date);
+  const last = rows.reduce((a, r) => (r.date > a ? r.date : a), rows[0].date);
+  const fd = (d) => new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(dateOf(d));
+  const sample = [...rows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  openSheet(`<h3>📥 Relevé reconnu</h3>
+    <p><strong>${rows.length} opérations</strong><br><span class="muted">du ${esc(fd(first))} au ${esc(fd(last))}</span></p>
+    <div class="card" style="box-shadow:none">${sample.map((r) => `<div class="row"><span class="grow"><span class="t1">${esc(r.label)}</span><span class="t2">${esc(shortDate(r.date))}</span></span><span class="amt ${r.amount > 0 ? 'pos' : ''}">${fmtSigned(r.amount)}</span></div>`).join('')}</div>
+    <button class="btn primary block" id="go">Importer</button>
+    ${adjust ? '<p class="center small"><button class="link" id="adj">Les montants ou libellés sont faux ? Ajuster les colonnes</button></p>' : ''}`,
+  (root) => {
+    $('#go', root).onclick = () => finishImport(rows);
+    if (adjust) $('#adj', root).onclick = () => adjust();
+  });
 }
 
 /** Ajoute les lignes bancaires en évitant les doublons et en rapprochant les paiements Apple Pay. */
@@ -918,31 +952,73 @@ function importApplePay(text) {
     addTx({ date: parseDate(d) || today(), amount: -Math.abs(amount), label: merchant.trim(), card: card.trim(), source: 'applepay' });
     S.apSeen[id] = 1; added++;
   }
-  save(); render();
+  S.apSetup = true; S.apLast = today();
+  save(); ui.view = 'home'; render();
   toast(added ? ` ${added} paiement${added > 1 ? 's' : ''} Apple Pay importé${added > 1 ? 's' : ''}` : 'Aucun nouveau paiement Apple Pay');
 }
 
-function applePayHelp() {
-  const url = location.origin + location.pathname;
-  openSheet(`<h3> Apple Pay automatique</h3>
-  <p class="small">L’app étant 100 % locale, le Raccourci note chaque paiement dans un fichier iCloud Drive ; tu l’importes ici quand tu veux (les doublons sont ignorés).</p>
-  <h4>1. Créer l’automatisation</h4>
-  <ol class="steps small">
-    <li>App <strong>Raccourcis</strong> → onglet <strong>Automatisation</strong> → <strong>+</strong> → <strong>Transaction</strong>.</li>
-    <li>Sélectionne ta carte (ex. La Banque Postale), laisse toutes les catégories, choisis <strong>Exécuter immédiatement</strong>.</li>
-    <li>Action <strong>Formater la date</strong> : <em>Date actuelle</em>, format personnalisé <code>yyyy-MM-dd HH:mm</code>.</li>
-    <li>Action <strong>Ajouter au fichier texte</strong> (Append to Text File) avec ce texte, en insérant les variables du déclencheur :<br>
-      <code>AP|[Date formatée]|[Montant]|[Commerçant]|[Carte]</code><br>
-      Fichier : <code>Raccourcis/budget-applepay.txt</code>, option « Créer une nouvelle ligne » activée.</li>
-  </ol>
-  <h4>2. Importer</h4>
-  <p class="small">Réglages → <strong>Importer un fichier</strong> → iCloud Drive → Raccourcis → <code>budget-applepay.txt</code>. Quand le relevé bancaire est importé ensuite, les paiements déjà captés sont rapprochés au lieu d’être dupliqués.</p>
-  <details><summary>Variante : saisie immédiate (dans Safari)</summary>
-    <p class="small">Si tu utilises l’app dans Safari (pas depuis l’écran d’accueil), la dernière action peut être <strong>Ouvrir les URL</strong> :<br>
-    <code>${esc(url)}?ap=1&amp;m=[Montant]&amp;n=[Commerçant]&amp;c=[Carte]</code><br>
-    (passe Commerçant par l’action <em>Encoder en URL</em>). L’app s’ouvre avec le paiement pré-rempli, tu valides d’un tap. ⚠️ Sur iPhone, l’app installée sur l’écran d’accueil a un stockage séparé de Safari : choisis l’une ou l’autre.</p>
-  </details>
-  <div class="btns"><button class="btn primary" data-act="pickFile">📥 Importer le fichier maintenant</button></div>`);
+const AP_LINE = 'AP|[Date actuelle]|[Montant]|[Commerçant]';
+function applePayHelp(step = 1) {
+  const steps = [
+    {
+      t: 'Ouvre l’app Raccourcis',
+      b: `<ol class="steps">
+        <li>Ouvre l’app <strong>Raccourcis</strong> (icône violette et rose, déjà sur ton iPhone).</li>
+        <li>En bas, touche <strong>Automatisation</strong>.</li>
+        <li>Touche <strong>+</strong> (ou <strong>Nouvelle automatisation</strong>).</li>
+        <li>Fais défiler et choisis <strong>Transaction</strong>.</li></ol>`,
+    },
+    {
+      t: 'Choisis ta carte',
+      b: `<ol class="steps">
+        <li>Coche ta carte <strong>La Banque Postale</strong> (et les autres cartes Apple Pay si tu veux).</li>
+        <li>Laisse toutes les catégories cochées.</li>
+        <li>En bas, choisis <strong>Exécuter immédiatement</strong> (pas « Après confirmation »).</li>
+        <li>Touche <strong>Suivant</strong>, puis <strong>Nouveau raccourci vide</strong>.</li></ol>`,
+    },
+    {
+      t: 'Ajoute l’action',
+      b: `<ol class="steps">
+        <li>Touche <strong>Ajouter une action</strong>, cherche <strong>« Ajouter au fichier texte »</strong> et touche-la.</li>
+        <li>Dans la zone de texte, tape <code>AP|</code>, puis touche la variable <strong>Date actuelle</strong> (dans la barre au-dessus du clavier), tape <code>|</code>,
+          puis touche <strong>Entrée du raccourci</strong> et choisis <strong>Montant</strong>, tape <code>|</code>, puis à nouveau <strong>Entrée du raccourci</strong> → <strong>Commerçant</strong>.</li>
+        <li>Résultat attendu : <code>${esc(AP_LINE)}</code></li>
+        <li>Nom du fichier : <code>budget-applepay.txt</code>. Active <strong>Créer une nouvelle ligne</strong>.</li>
+        <li>Touche <strong>OK</strong>. C’est fini côté Raccourcis ✅</li></ol>
+        <p class="small muted">Requiert iOS 17 ou plus récent. Le fichier se crée tout seul dans iCloud Drive → Raccourcis au premier paiement.</p>`,
+    },
+    {
+      t: 'Récupère tes paiements',
+      b: `<p>Après un paiement Apple Pay, reviens ici et touche <strong>📲 Récupérer mes paiements Apple Pay</strong> (sur l’accueil).</p>
+        <ol class="steps"><li>Dans la fenêtre qui s’ouvre : <strong>Parcourir</strong> → <strong>iCloud Drive</strong> → <strong>Raccourcis</strong>.</li>
+        <li>Touche <strong>budget-applepay.txt</strong>.</li></ol>
+        <p class="small muted">Les fois suivantes, il apparaît directement dans « Récents ». Seuls les nouveaux paiements sont ajoutés, et ils ne feront pas doublon avec ton relevé bancaire.</p>`,
+    },
+  ];
+  const st = steps[step - 1];
+  openSheet(`<p class="small muted">Étape ${step} sur ${steps.length}</p>
+    <h3> ${esc(st.t)}</h3>${st.b}
+    <div class="btns">
+      ${step > 1 ? `<button class="btn" id="prev">‹ Retour</button>` : ''}
+      ${step < steps.length ? `<button class="btn primary" id="next">Suivant ›</button>` : `<button class="btn primary" id="done">C’est configuré 👍</button>`}
+    </div>`, (root) => {
+    $('#prev', root)?.addEventListener('click', () => applePayHelp(step - 1));
+    $('#next', root)?.addEventListener('click', () => applePayHelp(step + 1));
+    $('#done', root)?.addEventListener('click', () => { S.apSetup = true; save(); closeSheet(); ui.view = 'home'; render(); });
+  });
+}
+
+function bankHelp() {
+  openSheet(`<h3>🏦 Récupérer ton historique</h3>
+    <p class="small muted">Une seule fois, depuis Safari (pas l’app La Banque Postale, qui n’exporte pas) :</p>
+    <ol class="steps">
+      <li>Sur <strong>labanquepostale.fr</strong>, connecte-toi à ton espace client (si le site mobile n’a pas l’option, touche <strong>aA</strong> → <strong>Demander le site pour ordinateur</strong>).</li>
+      <li>Ouvre ton <strong>compte courant</strong> pour voir la liste des opérations.</li>
+      <li>Cherche <strong>Télécharger</strong> / <strong>Exporter</strong> au-dessus de la liste, choisis le format <strong>CSV</strong> et la période la plus longue.</li>
+      <li>Le fichier va dans <strong>Fichiers → Téléchargements</strong>.</li>
+    </ol>
+    <button class="btn primary block" data-act="pickFile">J’ai le fichier → l’importer</button>
+    <p class="small muted center">Tu peux le refaire chaque mois : les opérations déjà présentes sont ignorées.</p>`);
 }
 
 /* ---------- Sauvegarde ---------- */
@@ -976,6 +1052,7 @@ const ACTIONS = {
   closeSheet: () => closeSheet(),
   pickFile: () => { $('#fileInput').value = ''; $('#fileInput').click(); },
   applePayHelp: () => applePayHelp(),
+  bankHelp: () => bankHelp(),
   newCat: () => openCatForm(null),
   editCat: (el) => openCatForm(S.categories.find((c) => c.id === el.dataset.id)),
   delRule: (el) => { S.rules.splice(+el.dataset.i, 1); save(); render(); },
